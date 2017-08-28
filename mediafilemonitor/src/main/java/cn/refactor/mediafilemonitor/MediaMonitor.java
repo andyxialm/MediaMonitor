@@ -28,6 +28,7 @@ import java.util.List;
 
 import rx.Observable;
 import rx.Subscriber;
+import rx.functions.Action0;
 
 /**
  * Created by andy (https://github.com/andyxialm)
@@ -42,6 +43,9 @@ public class MediaMonitor {
     private List<Directory> mRuleList;
     private @MediaType int mMediaType = MediaType.ALL;
 
+    private ContentResolver mContentResolver;
+    private ContentObserver mContentObserver;
+
     private MediaMonitor(Context context) {
         this(context, MediaType.ALL);
     }
@@ -52,6 +56,7 @@ public class MediaMonitor {
 
     private MediaMonitor(Context context, @MediaType int mediaType, List<Directory> rules) {
         this.mContext = context;
+        this.mContentResolver = mContext.getContentResolver();
         this.mMediaType = mediaType;
         if (rules != null) {
             if (mRuleList == null) {
@@ -79,24 +84,30 @@ public class MediaMonitor {
             public void call(Subscriber<? super String> subscriber) {
                 callOnSubscribe(subscriber);
             }
+        }).doOnUnsubscribe(new Action0() {
+            @Override
+            public void call() {
+                if (mContentResolver != null && mContentObserver != null) {
+                    mContentResolver.unregisterContentObserver(mContentObserver);
+                }
+            }
         });
     }
 
     private void callOnSubscribe(final Subscriber<? super String> subscriber) {
-        final ContentResolver contentResolver = this.mContext.getContentResolver();
-        if (contentResolver == null) {
+        if (mContentResolver == null) {
             subscriber.onError(new Throwable("Content resolver is null"));
             return;
         }
 
-        ContentObserver contentObserver = new ContentObserver(null) {
+        mContentObserver = new ContentObserver(null) {
             @Override
             public void onChange(boolean selfChange, Uri uri) {
                 super.onChange(selfChange, uri);
                 if (matchMediaType(uri)) {
                     Cursor cursor = null;
                     try {
-                        cursor = contentResolver.query(uri, new String[]{
+                        cursor = mContentResolver.query(uri, new String[]{
                                 MediaStore.Images.Media.DISPLAY_NAME,
                                 MediaStore.Images.Media.DATA,
                                 MediaStore.Images.Media.DATE_ADDED
@@ -121,19 +132,20 @@ public class MediaMonitor {
         };
 
         if (MediaType.ALL == mMediaType || MediaType.MEDIA_TYPE_IMAGE == mMediaType) {
-            contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                    , true, contentObserver);
+            mContentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    , true, mContentObserver);
         }
 
         if (MediaType.ALL == mMediaType || MediaType.MEDIA_TYPE_AUDIO == mMediaType) {
-            contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                    , true, contentObserver);
+            mContentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                    , true, mContentObserver);
         }
 
         if (MediaType.ALL == mMediaType || MediaType.MEDIA_TYPE_VIDEO == mMediaType) {
-            contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                    , true, contentObserver);
+            mContentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    , true, mContentObserver);
         }
+
     }
 
     private boolean matchMediaType(Uri uri) {
